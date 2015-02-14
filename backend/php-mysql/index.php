@@ -1,29 +1,45 @@
 <?php
-	set_time_limit(0);
+/*
+$mysqli = new mysqli("example.com", "user", "password", "database");
+$result = $mysqli->query("SELECT 'Hello, dear MySQL user!' AS _message FROM DUAL");
+$row = $result->fetch_assoc();
+echo htmlentities($row['_message']);
+*/
+
+$connection=null;
+set_time_limit(0);
 	function setup_saveloadlist() {
 		define("SERVER","localhost");
-		define("USER","");
+		define("USER","root");
 		define("PASSWORD","");
-		define("DB","home");
+		define("DB","wwwsqldesigner");
 		define("TABLE","wwwsqldesigner");
 	}
 	function setup_import() {
 		define("SERVER","localhost");
-		define("USER","");
+		define("USER","root");
 		define("PASSWORD","");
 		define("DB","information_schema");
 	}
 	function connect() {
-		$conn = mysql_connect(SERVER,USER,PASSWORD);
-		if (!$conn) return false;
-		$res = mysql_select_db(DB);
-		if (!$res) return false;
+		global $connection;
+		//echo "CONNECT:";
+		//$conn = mysql_connect(SERVER,USER,PASSWORD);
+		//if (!$conn) return false;
+		//$res = mysql_select_db(DB);
+		$connection=new mysqli(SERVER,USER,PASSWORD,DB);
+		//print_r($connection);
+		if (!$connection) {
+			echo "ERR:".$connection->error();
+			return false;
+		}
 		return true;
 	}
 
 	function import() {
+		global $connection;
 		$db = (isset($_GET["database"]) ? $_GET["database"] : "information_schema");
-		$db = mysql_real_escape_string($db);
+		//$db = mysql_real_escape_string($db);
 		$xml = "";
 
 		$arr = array();
@@ -33,17 +49,21 @@
 		for ($i=1;$i<count($datatypes);$i++) {
 			$arr[] = $datatypes[$i];
 		}
-
-		$result = mysql_query("SELECT * FROM TABLES WHERE TABLE_SCHEMA = '".$db."'");
-		while ($row = mysql_fetch_array($result)) {
+		$result = $connection->query("SELECT * FROM TABLES WHERE TABLE_SCHEMA = '".$db."'");
+//echo "got file ".$db;
+//flush();
+//die();
+		while ($row = $result->fetch_assoc()) {
 			$table = $row["TABLE_NAME"];
+	//		echo "got table".$table;
+//flush();
 			$xml .= '<table name="'.$table.'">';
 			$comment = (isset($row["TABLE_COMMENT"]) ? $row["TABLE_COMMENT"] : "");
 			if ($comment) { $xml .= '<comment>'.htmlspecialchars($comment).'</comment>'; }
 
 			$q = "SELECT * FROM COLUMNS WHERE TABLE_NAME = '".$table."' AND TABLE_SCHEMA = '".$db."'";
-			$result2 = mysql_query($q);
-			while ($row = mysql_fetch_array($result2)) {
+			$result2 = $connection->query($q);
+			while ($row = $result2->fetch_assoc()) {
 				$name  = $row["COLUMN_NAME"];
 				$type  = $row["COLUMN_TYPE"];
 				$comment = (isset($row["COLUMN_COMMENT"]) ? $row["COLUMN_COMMENT"] : "");
@@ -62,7 +82,7 @@
 				$xml .= '<default>'.$def.'</default>';
 				if ($comment) { $xml .= '<comment>'.htmlspecialchars($comment).'</comment>'; }
 
-				/* fk constraints */
+				// fk constraints 
 				$q = "SELECT
 					REFERENCED_TABLE_NAME AS 'table', REFERENCED_COLUMN_NAME AS 'column'
 					FROM KEY_COLUMN_USAGE k
@@ -71,21 +91,21 @@
 					WHERE CONSTRAINT_TYPE = 'FOREIGN KEY'
 					AND c.TABLE_SCHEMA = '".$db."' AND c.TABLE_NAME = '".$table."'
 					AND k.COLUMN_NAME = '".$name."'";
-				$result3 = mysql_query($q);
+				$result3 = $connection->query($q);
 
-				while ($row = mysql_fetch_array($result3)) {
+				while ($row =$result3->fetch_assoc()) {
 					$xml .= '<relation table="'.$row["table"].'" row="'.$row["column"].'" />';
 				}
 
 				$xml .= '</row>';
 			}
 
-			/* keys */
+			// keys 
 			$q = "SELECT * FROM STATISTICS WHERE TABLE_NAME = '".$table."' AND TABLE_SCHEMA = '".$db."' ORDER BY SEQ_IN_INDEX ASC";
-			$result2 = mysql_query($q);
+			$result2 = $connection->query($q);
 			$idx = array();
 
-			while ($row = mysql_fetch_array($result2)) {
+			while ($row = $result2->fetch_assoc()) {
 				$name = $row["INDEX_NAME"];
 				if (array_key_exists($name, $idx)) {
 					$obj = $idx[$name];
@@ -115,6 +135,7 @@
 				$xml .= '</key>';
 			}
 			$xml .= "</table>";
+			
 		}
 		$arr[] = $xml;
 		$arr[] = '</sql>';
@@ -129,8 +150,9 @@
 				header("HTTP/1.0 503 Service Unavailable");
 				break;
 			}
-			$result = mysql_query("SELECT keyword FROM ".TABLE." ORDER BY dt DESC");
-			while ($row = mysql_fetch_assoc($result)) {
+			//var_dump($connection);
+			$result = $connection->query("SELECT keyword FROM ".TABLE." ORDER BY dt DESC");
+			while ($row = $result->fetch_assoc()) {
 				echo $row["keyword"]."\n";
 			}
 		break;
@@ -141,17 +163,19 @@
 				break;
 			}
 			$keyword = (isset($_GET["keyword"]) ? $_GET["keyword"] : "");
-			$keyword = mysql_real_escape_string($keyword);
+			//$keyword = mysql_real_escape_string($keyword);
 			$data = file_get_contents("php://input");
 			if (get_magic_quotes_gpc() || get_magic_quotes_runtime()) {
 			   $data = stripslashes($data);
 			}
-			$data = mysql_real_escape_string($data);
-			$r = mysql_query("SELECT * FROM ".TABLE." WHERE keyword = '".$keyword."'");
-			if (mysql_num_rows($r) > 0) {
-				$res = mysql_query("UPDATE ".TABLE." SET data = '".$data."' WHERE keyword = '".$keyword."'");
+			$data = $connection->real_escape_string($data);
+			//var_dump($data);
+			//die();
+			$r = $connection->query("SELECT * FROM ".TABLE." WHERE keyword = '".$keyword."'");
+			if (count($r->fetch_assoc()) > 0) {
+				$res = $connection->query("UPDATE ".TABLE." SET data = '".$data."' WHERE keyword = '".$keyword."'");
 			} else {
-				$res = mysql_query("INSERT INTO ".TABLE." (keyword, data) VALUES ('".$keyword."', '".$data."')");
+				$res = $connection->query("INSERT INTO ".TABLE." (keyword, data) VALUES ('".$keyword."', '".$data."')");
 			}
 			if (!$res) {
 				header("HTTP/1.0 500 Internal Server Error");
@@ -166,10 +190,10 @@
 				break;
 			}
 			$keyword = (isset($_GET["keyword"]) ? $_GET["keyword"] : "");
-			$keyword = mysql_real_escape_string($keyword);
-			$result = mysql_query("SELECT `data` FROM ".TABLE." WHERE keyword = '".$keyword."'");
-			$row = mysql_fetch_assoc($result);
-			if (!$row) {
+			//$keyword = mysql_real_escape_string($keyword);
+			$result = $connection->query("SELECT `data` FROM ".TABLE." WHERE keyword = '".$keyword."'");
+			$row = $result->fetch_assoc();
+			if (!(count($row)>0)) {
 				header("HTTP/1.0 404 Not Found");
 			} else {
 				header("Content-type: text/xml");
